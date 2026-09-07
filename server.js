@@ -19,6 +19,13 @@ const FILES = {
   settings: path.join(DATA_DIR, 'settings.json'),
 };
 
+const EXAMPLE_FILES = {
+  employees: path.join(DATA_DIR, 'employees.example.json'),
+  salary: path.join(DATA_DIR, 'salary.example.json'),
+  travel: path.join(DATA_DIR, 'travel.example.json'),
+  equipment: path.join(DATA_DIR, 'equipment.example.json'),
+};
+
 /** 默认薪酬规则：总薪酬拆 70% 基本工资 + 30% 绩效；日薪 = 基本工资 / 26；时薪 = 日薪 / 8 */
 const DEFAULT_SETTINGS = {
   baseRatio: 0.7,   // 基本工资占月薪总额比例
@@ -412,7 +419,10 @@ async function handleApi(req, res, pathname) {
 // ---------- 启动 ----------
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 for (const k of ['employees', 'salary', 'travel', 'equipment']) {
-  if (!fs.existsSync(FILES[k])) fs.writeFileSync(FILES[k], '[]');
+  if (!fs.existsSync(FILES[k])) {
+    if (fs.existsSync(EXAMPLE_FILES[k])) fs.copyFileSync(EXAMPLE_FILES[k], FILES[k]);
+    else fs.writeFileSync(FILES[k], '[]');
+  }
 }
 if (!fs.existsSync(FILES.settings)) {
   fs.writeFileSync(FILES.settings, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf8');

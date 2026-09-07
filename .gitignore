@@ -1,0 +1,6 @@
+# Runtime business data (sample templates are tracked separately)
+data/employees.json
+data/salary.json
+data/travel.json
+data/equipment.json
+

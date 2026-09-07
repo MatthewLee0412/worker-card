@@ -1,0 +1,24 @@
+[
+  {
+    "id": "emp-zhangsan",
+    "name": "张三",
+    "department": "研发部",
+    "position": "前端工程师",
+    "joinDate": "2025-03-10",
+    "monthlyBase": 10000,
+    "photo": "",
+    "note": "示例员工",
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "emp-lisi",
+    "name": "李四",
+    "department": "实施部",
+    "position": "实施工程师",
+    "joinDate": "2025-06-16",
+    "monthlyBase": 8000,
+    "photo": "",
+    "note": "示例员工",
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+]

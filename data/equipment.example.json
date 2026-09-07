@@ -1,0 +1,13 @@
+[
+  {
+    "id": "equipment-001",
+    "date": "2026-01-08",
+    "name": "办公笔记本电脑",
+    "category": "电脑设备",
+    "quantity": 2,
+    "unitPrice": 6000,
+    "amount": 12000,
+    "vendor": "示例供应商",
+    "note": "研发人员办公设备（示例）"
+  }
+]

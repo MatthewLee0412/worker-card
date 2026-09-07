@@ -1,0 +1,16 @@
+[
+  {
+    "id": "travel-zhangsan-001",
+    "empId": "emp-zhangsan",
+    "date": "2026-01-15",
+    "amount": 1200,
+    "note": "上海客户拜访（示例）"
+  },
+  {
+    "id": "travel-lisi-001",
+    "empId": "emp-lisi",
+    "date": "2026-02-20",
+    "amount": 1800,
+    "note": "杭州项目实施（示例）"
+  }
+]
