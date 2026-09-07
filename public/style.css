@@ -245,6 +245,14 @@ button, select { touch-action: manipulation; }
   letter-spacing: -.1px;
   margin-bottom: 16px;
 }
+.service-notice {
+  padding: 12px 14px;
+  border: 1px solid #f1d59a;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #815b12;
+  line-height: 1.7;
+}
 
 .table-scroll { width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
@@ -275,6 +283,9 @@ tfoot tr { border-top: 1px solid var(--border); background: #f8fafc; }
 .salary-table .row-actions { white-space: nowrap; }
 .salary-table .row-actions .btn + .btn { margin-left: 4px; }
 .salary-table tfoot td { height: 50px; font-weight: 700; }
+.equipment-table { min-width: 1120px; }
+.equipment-table .note-cell { max-width: 240px; overflow-wrap: anywhere; color: var(--sub); font-size: 12px; }
+.equipment-table tfoot td { height: 50px; font-weight: 700; }
 .action-head,
 .row-actions { text-align: center; }
 
@@ -347,11 +358,24 @@ tfoot tr { border-top: 1px solid var(--border); background: #f8fafc; }
 .preview-deduct { margin-top: 10px; color: var(--sub); font-size: 12px; line-height: 1.7; }
 .preview-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text); font-weight: 600; }
 .preview-total strong { color: var(--primary); font-size: 18px; font-variant-numeric: tabular-nums; }
+.cost-preview {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--primary-bg);
+  color: var(--sub);
+}
+.cost-preview strong { color: var(--primary); font-size: 18px; font-variant-numeric: tabular-nums; }
 
 /* ---------- 报表 ---------- */
 .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .report-grid { grid-template-columns: 1fr; } }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1000px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .kpi {
   background: var(--card);
   border: 1px solid var(--border);

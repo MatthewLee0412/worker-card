@@ -5,5 +5,12 @@
     "date": "2026-09-07",
     "amount": 3500,
     "note": "杭州出差"
+  },
+  {
+    "id": "mtqtzr6zcaltaj",
+    "empId": "mtqptqcy9vug20",
+    "date": "2026-09-07",
+    "amount": 5000,
+    "note": "山东出差"
   }
 ]

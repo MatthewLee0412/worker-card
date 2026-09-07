@@ -6,6 +6,8 @@ const state = {
   employees: [],
   salary: [],
   travel: [],
+  equipment: [],
+  equipmentApiAvailable: true,
   settings: { baseRatio: 0.7, daysPerMonth: 26, hoursPerDay: 8 },
 };
 
@@ -57,12 +59,20 @@ function travelSum(empId, year) {
     .reduce((s, r) => s + (Number(r.amount) || 0), 0);
 }
 
+/** 某年的公司设备采买总额 */
+function equipmentSum(year) {
+  return state.equipment
+    .filter((r) => r.date.startsWith(String(year)))
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+}
+
 // ---------- 年份选择 ----------
 function initYearSel() {
   const sel = $('#yearSel');
   const years = new Set([state.year]);
   state.salary.forEach((r) => years.add(r.year));
   state.travel.forEach((r) => years.add(Number(r.date.slice(0, 4)) || state.year));
+  state.equipment.forEach((r) => years.add(Number(r.date.slice(0, 4)) || state.year));
   sel.innerHTML = [...years].sort((a, b) => b - a)
     .map((y) => `<option value="${y}" ${y === state.year ? 'selected' : ''}>${y}</option>`).join('');
   sel.onchange = () => { state.year = Number(sel.value); render(); };
@@ -119,7 +129,7 @@ function viewCards() {
         <div><div class="num">¥${fmt(tv)}</div><div class="lbl">${state.year}年差旅</div></div>
         <div><div class="num">${s.months}</div><div class="lbl">录入月数</div></div>
       </div>
-      <div class="total"><span>年度总成本</span><span class="num">¥${fmt(total)}</span></div>
+      <div class="total"><span>员工年度成本（薪酬+差旅）</span><span class="num">¥${fmt(total)}</span></div>
       <div class="ops">
         <button class="btn small" onclick="editEmp('${e.id}')">编辑</button>
         <button class="btn small" onclick="quickSalary('${e.id}')">记薪酬</button>
@@ -514,6 +524,116 @@ window.delTravel = async function (id) {
   toast('已删除'); await refresh();
 };
 
+// ================= 视图：设备采买 =================
+const EQUIPMENT_CATEGORIES = ['电脑设备', '办公设备', '测试设备', '网络设备', '其他'];
+
+function viewEquipment() {
+  if (!state.equipmentApiAvailable) {
+    return `<div class="panel">
+      <h2>设备采买服务尚未加载</h2>
+      <div class="service-notice" role="status">原有员工、薪酬和差旅数据不受影响。请重新启动员工管理系统后再记录设备采买。</div>
+    </div>`;
+  }
+  const rows = state.equipment
+    .filter((r) => r.date.startsWith(String(state.year)))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const totalQty = rows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+  const trs = rows.map((r) => `<tr>
+    <td>${esc(r.date)}</td>
+    <td><b>${esc(r.name)}</b></td>
+    <td>${esc(r.category || '其他')}</td>
+    <td class="num">${fmt(r.quantity)}</td>
+    <td class="num">${fmt(r.unitPrice)}</td>
+    <td class="num pos">${fmt(r.amount)}</td>
+    <td>${esc(r.vendor || '—')}</td>
+    <td class="note-cell">${esc(r.note || '—')}</td>
+    <td class="row-actions">
+      <button class="btn small" onclick="editEquipment('${r.id}')">编辑</button>
+      <button class="btn small danger" onclick="delEquipment('${r.id}')">删除</button>
+    </td>
+  </tr>`).join('');
+  return `
+    <div class="toolbar">
+      <button class="btn primary" onclick="editEquipment()">＋ 记录设备采买</button>
+      <span class="hint">${state.year}年共 ${rows.length} 笔 · ${fmt(totalQty)} 件 · 设备采买总额：¥${fmt(total)}</span>
+    </div>
+    <div class="panel">
+      <h2>设备采买明细</h2>
+      <div class="table-scroll"><table class="wide-table equipment-table">
+        <thead><tr><th scope="col">日期</th><th scope="col">设备名称</th><th scope="col">分类</th><th scope="col" class="num">数量</th><th scope="col" class="num">单价</th><th scope="col" class="num">成本金额</th><th scope="col">供应商/渠道</th><th scope="col">备注</th><th scope="col" class="action-head">操作</th></tr></thead>
+        <tbody>${trs || `<tr><td colspan="9" class="empty">${state.year}年暂无设备采买记录，点击「记录设备采买」添加</td></tr>`}</tbody>
+        ${trs ? `<tfoot><tr><td colspan="3">合计</td><td class="num">${fmt(totalQty)}</td><td></td><td class="num pos">¥${fmt(total)}</td><td colspan="3"></td></tr></tfoot>` : ''}
+      </table></div>
+    </div>`;
+}
+
+/** 新增/编辑设备采买记录 */
+window.editEquipment = function (id) {
+  if (!state.equipmentApiAvailable) return toast('请先重新启动员工管理系统，再使用设备采买功能');
+  const rec = id ? state.equipment.find((r) => r.id === id) : null;
+  const today = new Date();
+  const defaultDate = `${state.year}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const category = rec?.category || EQUIPMENT_CATEGORIES[0];
+  openModal(`
+    <h3>${rec ? '编辑设备采买' : '记录设备采买'} · ${state.year}年</h3>
+    <div class="form">
+      <label>设备名称 *<input id="e-name" value="${esc(rec?.name || '')}" placeholder="如：笔记本电脑"></label>
+      <label>采买日期 *<input id="e-date" type="date" value="${esc(rec?.date || defaultDate)}"></label>
+      <label>设备分类
+        <select id="e-category">${EQUIPMENT_CATEGORIES.map((c) => `<option value="${c}" ${c === category ? 'selected' : ''}>${c}</option>`).join('')}</select>
+      </label>
+      <label>数量 *<input id="e-quantity" type="number" step="1" min="1" value="${rec?.quantity ?? 1}"></label>
+      <label>单价（元）*<input id="e-unit-price" type="number" step="0.01" min="0" value="${rec?.unitPrice ?? ''}" placeholder="如：5999"></label>
+      <label>供应商/渠道<input id="e-vendor" value="${esc(rec?.vendor || '')}" placeholder="如：京东、设备供应商"></label>
+      <label class="full">备注<textarea id="e-note" rows="2" placeholder="型号、用途、订单号等">${esc(rec?.note || '')}</textarea></label>
+      <div class="full cost-preview" aria-live="polite">
+        <span>本笔设备成本</span><strong id="e-total">¥${fmt(rec?.amount || 0)}</strong>
+      </div>
+      <div class="actions">
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn primary" onclick="saveEquipment('${id || ''}')">保存</button>
+      </div>
+    </div>`);
+  const updateTotal = () => {
+    const quantity = Math.max(1, Math.floor(Number($('#e-quantity').value) || 1));
+    const unitPrice = Math.max(0, Number($('#e-unit-price').value) || 0);
+    $('#e-total').textContent = `¥${fmt(round2(quantity * unitPrice))}`;
+  };
+  $('#e-quantity').addEventListener('input', updateTotal);
+  $('#e-unit-price').addEventListener('input', updateTotal);
+};
+
+window.saveEquipment = async function (id) {
+  const body = {
+    name: $('#e-name').value,
+    date: $('#e-date').value,
+    category: $('#e-category').value,
+    quantity: $('#e-quantity').value,
+    unitPrice: $('#e-unit-price').value,
+    vendor: $('#e-vendor').value,
+    note: $('#e-note').value,
+  };
+  if (!body.name.trim()) return toast('设备名称必填');
+  if (!body.date) return toast('采买日期必填');
+  if (!(Number(body.quantity) >= 1)) return toast('数量至少为 1');
+  if (!(Number(body.unitPrice) >= 0) || body.unitPrice === '') return toast('请填写设备单价');
+  try {
+    if (id) await api(`/api/equipment/${id}`, 'PUT', body);
+    else await api('/api/equipment', 'POST', body);
+    closeModal();
+    toast(id ? '设备采买已更新' : '设备采买已记录');
+    await refresh();
+  } catch (err) { toast(err.message); }
+};
+
+window.delEquipment = async function (id) {
+  if (!confirm('删除这条设备采买记录？')) return;
+  await api(`/api/equipment/${id}`, 'DELETE');
+  toast('已删除');
+  await refresh();
+};
+
 // ================= 视图：统计报表 =================
 const DEPT_COLORS = ['#3370ff', '#2e9e5b', '#e8a33d', '#9a6fd8', '#e5484d', '#3ab0c9', '#8a94a6'];
 
@@ -529,8 +649,10 @@ function viewReport() {
     base: a.base + r.base, merit: a.merit + r.merit, bonus: a.bonus + r.bonus,
     deduct: a.deduct + r.deduct, travel: a.travel + r.travel, total: a.total + r.total,
   }), { base: 0, merit: 0, bonus: 0, deduct: 0, travel: 0, total: 0 });
+  const equipment = equipmentSum(y);
+  const companyTotal = tot.total + equipment;
 
-  // 月度趋势（薪酬实发 + 差旅）
+  // 月度趋势（薪酬实发 + 差旅 + 设备采买）
   const mm = (m) => String(m).padStart(2, '0');
   const monthly = MONTHS.map((m) => {
     const sal = state.salary
@@ -539,7 +661,10 @@ function viewReport() {
     const tv = state.travel
       .filter((r) => r.date.startsWith(`${y}-${mm(m)}`))
       .reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    return { m, sal, tv, all: sal + tv };
+    const eq = state.equipment
+      .filter((r) => r.date.startsWith(`${y}-${mm(m)}`))
+      .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    return { m, sal, tv, eq, all: sal + tv + eq };
   });
   const maxM = Math.max(...monthly.map((x) => x.all), 1);
 
@@ -561,12 +686,14 @@ function viewReport() {
 
   return `
     <div class="kpis">
-      <div class="kpi highlight"><div class="v">¥${fmt(tot.total)}</div><div class="t">${y}年人力总成本（薪酬+差旅）</div></div>
+      <div class="kpi highlight"><div class="v">¥${fmt(companyTotal)}</div><div class="t">${y}年总成本（薪酬+差旅+设备）</div></div>
       <div class="kpi"><div class="v">¥${fmt(tot.base)}</div><div class="t">固定月薪合计</div></div>
       <div class="kpi"><div class="v">¥${fmt(tot.merit)}</div><div class="t">绩效合计</div></div>
       <div class="kpi"><div class="v">¥${fmt(tot.bonus)}</div><div class="t">奖金合计</div></div>
       <div class="kpi"><div class="v">¥${fmt(tot.deduct)}</div><div class="t">扣款合计</div></div>
+      <div class="kpi"><div class="v">¥${fmt(tot.base + tot.merit + tot.bonus - tot.deduct)}</div><div class="t">薪酬实发合计</div></div>
       <div class="kpi"><div class="v">¥${fmt(tot.travel)}</div><div class="t">差旅合计</div></div>
+      <div class="kpi"><div class="v">¥${fmt(equipment)}</div><div class="t">设备采买合计</div></div>
     </div>
     <div class="report-grid">
       <div class="panel"><h2>月度支出趋势</h2>
@@ -580,7 +707,7 @@ function viewReport() {
             </div>`).join('')}
         </div>
       </div>
-      <div class="panel"><h2>部门成本占比</h2>
+      <div class="panel"><h2>部门人力成本占比（薪酬+差旅）</h2>
         ${deptArr.length && tot.total ? `
           <div class="dept-breakdown">
             ${deptArr.map(([d, v], i) => {
@@ -591,7 +718,7 @@ function viewReport() {
                   <div class="dept-name"><span class="dept-dot" style="background:${color}" aria-hidden="true"></span><span class="dept-name-text">${esc(d)}</span></div>
                   <div class="dept-metrics">¥${fmt(v)}<strong>${pct.toFixed(1)}%</strong></div>
                 </div>
-                <div class="dept-track" role="img" aria-label="${esc(d)}占年度总成本${pct.toFixed(1)}%">
+                <div class="dept-track" role="img" aria-label="${esc(d)}占员工年度成本${pct.toFixed(1)}%">
                   <span class="dept-fill" style="width:${pct}%;background:${color}"></span>
                 </div>
               </div>`;
@@ -600,9 +727,9 @@ function viewReport() {
       </div>
     </div>
     <div class="panel">
-      <h2>年度总成本排行（${y}）</h2>
+      <h2>员工年度成本排行（${y}，薪酬+差旅）</h2>
       <div class="table-scroll"><table class="wide-table report-table">
-        <thead><tr><th scope="col">#</th><th scope="col">员工</th><th scope="col">部门</th><th scope="col" class="num">月薪</th><th scope="col" class="num">绩效</th><th scope="col" class="num">奖金</th><th scope="col" class="num">扣款</th><th scope="col" class="num">薪酬实发</th><th scope="col" class="num">差旅</th><th scope="col" class="num">年度总成本</th></tr></thead>
+        <thead><tr><th scope="col">#</th><th scope="col">员工</th><th scope="col">部门</th><th scope="col" class="num">月薪</th><th scope="col" class="num">绩效</th><th scope="col" class="num">奖金</th><th scope="col" class="num">扣款</th><th scope="col" class="num">薪酬实发</th><th scope="col" class="num">差旅</th><th scope="col" class="num">员工年度成本</th></tr></thead>
         <tbody>${trs || `<tr><td colspan="10" class="empty">暂无数据</td></tr>`}</tbody>
         ${trs ? `<tfoot><tr style="font-weight:700">
           <td colspan="3">合计</td>
@@ -613,6 +740,7 @@ function viewReport() {
       </table></div>
       <div class="toolbar" style="margin-top:14px">
         <button class="btn" onclick="exportReport()">导出年度核算报表（CSV，Excel 可打开）</button>
+        <span class="hint">公司年度总成本另含设备采买 ¥${fmt(equipment)}</span>
       </div>
     </div>`;
 }
@@ -625,11 +753,23 @@ window.exportReport = function () {
     return [e.name, e.department, e.position, s.base, s.merit, s.bonus, s.deduct, s.net, tv, s.net + tv];
   }).sort((a, b) => b[9] - a[9]);
   const tot = rows.reduce((a, r) => a.map((v, i) => (i < 3 ? '' : v + r[i])), ['', '', '', 0, 0, 0, 0, 0, 0, 0]);
+  const equipmentRows = state.equipment
+    .filter((r) => r.date.startsWith(String(y)))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const equipmentTotal = equipmentRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const employeeTotal = tot[9];
   const csv = [
     [`员工年度成本核算报表 ${y}年`],
     ['姓名', '部门', '职位', '月薪合计', '绩效合计', '奖金合计', '扣款合计', '薪酬实发', '差旅合计', '年度总成本'],
     ...rows,
     ['合计', '', '', ...tot.slice(3)],
+    [],
+    [`公司年度总成本（员工成本 + 设备采买）：${employeeTotal + equipmentTotal}`],
+    [],
+    [`设备采买明细 ${y}年`],
+    ['日期', '设备名称', '分类', '数量', '单价', '成本金额', '供应商/渠道', '备注'],
+    ...equipmentRows.map((r) => [r.date, r.name, r.category, r.quantity, r.unitPrice, r.amount, r.vendor, r.note]),
+    ['设备采买合计', '', '', '', '', equipmentTotal, '', ''],
   ].map((line) => line.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
   // 加 BOM 让 Excel 正确识别中文
@@ -694,20 +834,31 @@ window.saveSettings = async function () {
 
 // ---------- 渲染 ----------
 function render() {
-  const views = { cards: viewCards, salary: viewSalary, travel: viewTravel, report: viewReport };
+  const views = { cards: viewCards, salary: viewSalary, travel: viewTravel, equipment: viewEquipment, report: viewReport };
   $('#app').innerHTML = views[state.tab]();
 }
 
 async function refresh() {
-  const [employees, salary, travel, settings] = await Promise.all([
-    api('/api/employees'), api('/api/salary'), api('/api/travel'), api('/api/settings'),
+  // 兼容仍在运行的旧版后台：设备接口未加载时，不能阻断原有数据页面初始化。
+  const equipmentRequest = api('/api/equipment')
+    .then((data) => ({ data, available: true }))
+    .catch((err) => {
+      if (err.message === 'unknown api') return { data: [], available: false };
+      throw err;
+    });
+  const [employees, salary, travel, equipmentResult, settings] = await Promise.all([
+    api('/api/employees'), api('/api/salary'), api('/api/travel'), equipmentRequest, api('/api/settings'),
   ]);
   state.employees = employees;
   state.salary = salary;
   state.travel = travel;
+  state.equipment = equipmentResult.data;
+  state.equipmentApiAvailable = equipmentResult.available;
   state.settings = settings;
   initYearSel();
   render();
 }
 
-refresh();
+refresh().catch((err) => {
+  $('#app').innerHTML = `<div class="panel"><div class="empty">数据加载失败：${esc(err.message)}。请重新启动员工管理系统后刷新页面。</div></div>`;
+});

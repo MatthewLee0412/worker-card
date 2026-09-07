@@ -15,6 +15,7 @@ const FILES = {
   employees: path.join(DATA_DIR, 'employees.json'),
   salary: path.join(DATA_DIR, 'salary.json'),
   travel: path.join(DATA_DIR, 'travel.json'),
+  equipment: path.join(DATA_DIR, 'equipment.json'),
   settings: path.join(DATA_DIR, 'settings.json'),
 };
 
@@ -343,12 +344,74 @@ async function handleApi(req, res, pathname) {
     }
   }
 
+  // 设备采买记录 CRUD（公司级成本，不强制归属员工）
+  if (pathname === '/api/equipment') {
+    if (method === 'GET') return send(res, 200, load('equipment'));
+    if (method === 'POST') {
+      const body = await readBody(req);
+      const quantity = Math.max(1, Math.floor(Number(body.quantity) || 1));
+      const unitPrice = Math.max(0, round2(body.unitPrice));
+      const rec = {
+        id: uid(),
+        date: body.date || new Date().toISOString().slice(0, 10),
+        name: String(body.name || '').trim(),
+        category: String(body.category || '其他').trim() || '其他',
+        quantity,
+        unitPrice,
+        amount: round2(quantity * unitPrice),
+        vendor: String(body.vendor || '').trim(),
+        note: String(body.note || '').trim(),
+      };
+      if (!rec.name) return send(res, 400, { error: '设备名称必填' });
+      const list = load('equipment');
+      list.push(rec);
+      save('equipment', list);
+      return send(res, 201, rec);
+    }
+  }
+
+  m = pathname.match(/^\/api\/equipment\/([^/]+)$/);
+  if (m) {
+    const list = load('equipment');
+    const i = list.findIndex((r) => r.id === m[1]);
+    if (i < 0) return send(res, 404, { error: '记录不存在' });
+    if (method === 'DELETE') {
+      list.splice(i, 1);
+      save('equipment', list);
+      return send(res, 200, { ok: true });
+    }
+    if (method === 'PUT') {
+      const body = await readBody(req);
+      const old = list[i];
+      const quantity = body.quantity !== undefined
+        ? Math.max(1, Math.floor(Number(body.quantity) || 1))
+        : old.quantity;
+      const unitPrice = body.unitPrice !== undefined
+        ? Math.max(0, round2(body.unitPrice))
+        : old.unitPrice;
+      list[i] = {
+        ...old,
+        date: body.date !== undefined ? body.date : old.date,
+        name: body.name !== undefined ? String(body.name).trim() : old.name,
+        category: body.category !== undefined ? (String(body.category).trim() || '其他') : old.category,
+        quantity,
+        unitPrice,
+        amount: round2(quantity * unitPrice),
+        vendor: body.vendor !== undefined ? String(body.vendor).trim() : old.vendor,
+        note: body.note !== undefined ? String(body.note).trim() : old.note,
+      };
+      if (!list[i].name) return send(res, 400, { error: '设备名称必填' });
+      save('equipment', list);
+      return send(res, 200, list[i]);
+    }
+  }
+
   return send(res, 404, { error: 'unknown api' });
 }
 
 // ---------- 启动 ----------
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-for (const k of ['employees', 'salary', 'travel']) {
+for (const k of ['employees', 'salary', 'travel', 'equipment']) {
   if (!fs.existsSync(FILES[k])) fs.writeFileSync(FILES[k], '[]');
 }
 if (!fs.existsSync(FILES.settings)) {
