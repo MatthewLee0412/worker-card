@@ -1,0 +1,24 @@
+[
+  {
+    "id": "mtqn74hfasouxy",
+    "name": "芽仔",
+    "department": "新技术研究",
+    "position": "算法",
+    "joinDate": "",
+    "monthlyBase": 8500,
+    "photo": "",
+    "note": "",
+    "createdAt": "2026-09-07T02:49:42.003Z"
+  },
+  {
+    "id": "mtqpk2b5f2ppw6",
+    "name": "七仔",
+    "department": "新技术研究",
+    "position": "后端开发",
+    "joinDate": "",
+    "monthlyBase": 7500,
+    "photo": "",
+    "note": "",
+    "createdAt": "2026-09-07T03:55:44.945Z"
+  }
+]

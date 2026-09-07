@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>员工管理系统</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="logo"><span class="dot" aria-hidden="true"></span>员工管理</div>
+      <label class="yearbox" for="yearSel">
+        年度
+        <select id="yearSel"></select>
+      </label>
+      <nav class="tabs" aria-label="主要功能">
+        <button type="button" class="tab active" data-tab="cards" aria-current="page">员工卡片</button>
+        <button type="button" class="tab" data-tab="salary">薪酬记录</button>
+        <button type="button" class="tab" data-tab="travel">差旅成本</button>
+        <button type="button" class="tab" data-tab="report">统计报表</button>
+      </nav>
+      <button class="btn small settings-btn" id="settingsBtn">薪酬规则设置</button>
+    </div>
+  </header>
+
+  <div class="page" id="app"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
