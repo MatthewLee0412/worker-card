@@ -9,6 +9,7 @@ const path = require('path');
 const PORT = process.env.PORT || 3817;
 const DATA_DIR = path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const PID_FILE = path.join(__dirname, '.worker-card.pid');
 
 // ---------- 数据层 ----------
 const FILES = {
@@ -16,6 +17,7 @@ const FILES = {
   salary: path.join(DATA_DIR, 'salary.json'),
   travel: path.join(DATA_DIR, 'travel.json'),
   equipment: path.join(DATA_DIR, 'equipment.json'),
+  assessments: path.join(DATA_DIR, 'assessments.json'),
   settings: path.join(DATA_DIR, 'settings.json'),
 };
 
@@ -24,7 +26,12 @@ const EXAMPLE_FILES = {
   salary: path.join(DATA_DIR, 'salary.example.json'),
   travel: path.join(DATA_DIR, 'travel.example.json'),
   equipment: path.join(DATA_DIR, 'equipment.example.json'),
+  assessments: path.join(DATA_DIR, 'assessments.example.json'),
 };
+
+const COMPETENCY_IDS = new Set([
+  'ownership', 'openness', 'judgment', 'learning', 'execution', 'collaboration',
+]);
 
 /** 默认薪酬规则：总薪酬拆 70% 基本工资 + 30% 绩效；日薪 = 基本工资 / 26；时薪 = 日薪 / 8 */
 const DEFAULT_SETTINGS = {
@@ -166,6 +173,10 @@ async function handleApi(req, res, pathname) {
         joinDate: body.joinDate || '',
         monthlyBase: Number(body.monthlyBase) || 0, // 默认月薪，录入薪酬时可自动带出
         photo: body.photo || '', // dataURL 或留空
+        roleSummary: String(body.roleSummary || '').trim(),
+        skills: Array.isArray(body.skills)
+          ? body.skills.map((x) => String(x).trim()).filter(Boolean).slice(0, 12)
+          : [],
         note: body.note || '',
         createdAt: new Date().toISOString(),
       };
@@ -193,6 +204,10 @@ async function handleApi(req, res, pathname) {
         joinDate: body.joinDate !== undefined ? body.joinDate : old.joinDate,
         monthlyBase: body.monthlyBase !== undefined ? Number(body.monthlyBase) || 0 : old.monthlyBase,
         photo: body.photo !== undefined ? body.photo : old.photo,
+        roleSummary: body.roleSummary !== undefined ? String(body.roleSummary).trim() : (old.roleSummary || ''),
+        skills: body.skills !== undefined && Array.isArray(body.skills)
+          ? body.skills.map((x) => String(x).trim()).filter(Boolean).slice(0, 12)
+          : (old.skills || []),
         note: body.note !== undefined ? body.note : old.note,
       };
       if (!list[idx].name) return send(res, 400, { error: '姓名必填' });
@@ -202,13 +217,56 @@ async function handleApi(req, res, pathname) {
     if (method === 'DELETE') {
       list.splice(idx, 1);
       save('employees', list);
-      // 级联删除薪酬与差旅记录
+      // 级联删除薪酬、差旅与能力观察记录
       const salary = load('salary').filter((r) => r.empId !== m[1]);
       const travel = load('travel').filter((r) => r.empId !== m[1]);
+      const assessments = load('assessments').filter((r) => r.empId !== m[1]);
       save('salary', salary);
       save('travel', travel);
+      save('assessments', assessments);
       return send(res, 200, { ok: true });
     }
+  }
+
+  // 人才棒球卡观察记录：保留每一次评分及其证据，由前端汇总画像
+  if (pathname === '/api/assessments') {
+    if (method === 'GET') return send(res, 200, load('assessments'));
+    if (method === 'POST') {
+      const body = await readBody(req);
+      const employees = load('employees');
+      const score = Number(body.score);
+      const evidence = String(body.evidence || '').trim();
+      const dimension = String(body.dimension || '');
+      if (!employees.some((e) => e.id === body.empId)) return send(res, 400, { error: '员工不存在' });
+      if (!COMPETENCY_IDS.has(dimension)) return send(res, 400, { error: '能力维度无效' });
+      if (!Number.isInteger(score) || score < 1 || score > 5) return send(res, 400, { error: '评分需为 1～5 的整数' });
+      if (evidence.length < 6) return send(res, 400, { error: '请填写至少 6 个字的具体事实或工作结果' });
+      const rec = {
+        id: uid(),
+        empId: body.empId,
+        date: /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : new Date().toISOString().slice(0, 10),
+        dimension,
+        score,
+        source: ['manager', 'self', 'peer', 'result'].includes(body.source) ? body.source : 'manager',
+        observer: String(body.observer || '管理员').trim() || '管理员',
+        evidence,
+        createdAt: new Date().toISOString(),
+      };
+      const list = load('assessments');
+      list.push(rec);
+      save('assessments', list);
+      return send(res, 201, rec);
+    }
+  }
+
+  m = pathname.match(/^\/api\/assessments\/([^/]+)$/);
+  if (m && method === 'DELETE') {
+    const list = load('assessments');
+    const i = list.findIndex((r) => r.id === m[1]);
+    if (i < 0) return send(res, 404, { error: '观察记录不存在' });
+    list.splice(i, 1);
+    save('assessments', list);
+    return send(res, 200, { ok: true });
   }
 
   // 薪酬规则设置
@@ -424,6 +482,15 @@ for (const k of ['employees', 'salary', 'travel', 'equipment']) {
     else fs.writeFileSync(FILES[k], '[]');
   }
 }
+if (!fs.existsSync(FILES.assessments)) {
+  let seed = [];
+  try {
+    const employeeIds = new Set(load('employees').map((e) => e.id));
+    seed = JSON.parse(fs.readFileSync(EXAMPLE_FILES.assessments, 'utf8'))
+      .filter((r) => employeeIds.has(r.empId));
+  } catch { /* 示例文件缺失时使用空列表 */ }
+  save('assessments', seed);
+}
 if (!fs.existsSync(FILES.settings)) {
   fs.writeFileSync(FILES.settings, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf8');
 }
@@ -431,6 +498,17 @@ if (!fs.existsSync(FILES.settings)) {
 // 崩溃时留下日志，避免静默退出难以排查
 process.on('uncaughtException', (err) => console.error('[uncaught]', err));
 process.on('unhandledRejection', (err) => console.error('[unhandled]', err));
+
+function removeOwnPidFile() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(PID_FILE, 'utf8'));
+    if (saved.pid === process.pid) fs.unlinkSync(PID_FILE);
+  } catch { /* PID 文件不存在或已被其他实例更新 */ }
+}
+
+process.on('exit', removeOwnPidFile);
+process.on('SIGINT', () => process.exit(0));
+process.on('SIGTERM', () => process.exit(0));
 
 http
   .createServer((req, res) => {
@@ -451,5 +529,6 @@ http
     process.exit(1);
   })
   .listen(PORT, () => {
+    fs.writeFileSync(PID_FILE, JSON.stringify({ pid: process.pid, port: Number(PORT) }), 'utf8');
     console.log(`员工管理系统已启动: http://localhost:${PORT}`);
   });

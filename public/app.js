@@ -7,6 +7,7 @@ const state = {
   salary: [],
   travel: [],
   equipment: [],
+  assessments: [],
   equipmentApiAvailable: true,
   settings: { baseRatio: 0.7, daysPerMonth: 26, hoursPerDay: 8 },
 };
@@ -27,6 +28,15 @@ async function api(path, method = 'GET', body) {
 const fmt = (n) => (Number(n) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MONTHS = [...Array(12)].map((_, i) => i + 1);
+const COMPETENCIES = [
+  { id: 'ownership', name: '主人翁精神', short: '主人翁', description: '主动承担责任，持续推进问题直到闭环' },
+  { id: 'openness', name: '开放心态', short: '开放心态', description: '愿意面对事实、接受反馈并修正判断' },
+  { id: 'judgment', name: '逻辑判断', short: '逻辑判断', description: '识别关键问题，依据事实做出可靠判断' },
+  { id: 'learning', name: '学习适应', short: '学习适应', description: '快速学习，在新情况中调整方法' },
+  { id: 'execution', name: '执行交付', short: '执行交付', description: '稳定完成承诺，并产出可验证的结果' },
+  { id: 'collaboration', name: '协作沟通', short: '协作沟通', description: '清晰同步信息，推动多人共同完成目标' },
+];
+const SOURCE_NAMES = { manager: '主管观察', self: '员工自评', peer: '同事反馈', result: '工作结果' };
 
 function toast(msg) {
   const t = document.createElement('div');
@@ -39,6 +49,43 @@ function toast(msg) {
 }
 
 function empName(id) { return state.employees.find((e) => e.id === id)?.name || '（已删除）'; }
+function competency(id) { return COMPETENCIES.find((x) => x.id === id) || { id, name: id, short: id, description: '' }; }
+const average = (list) => list.length ? list.reduce((sum, x) => sum + Number(x), 0) / list.length : null;
+const scoreText = (n) => n === null ? '证据不足' : ({ 1: '需要指导', 2: '尚不稳定', 3: '可以独立', 4: '稳定优秀', 5: '可指导他人' }[Math.round(n)]);
+const scoreTone = (n) => n === null ? 'no-score' : n >= 4 ? 'strong' : n < 3 ? 'watch' : 'steady';
+
+function talentProfile(empId) {
+  const records = state.assessments
+    .filter((r) => r.empId === empId)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+  const dimensions = COMPETENCIES.map((d) => {
+    const items = records.filter((r) => r.dimension === d.id);
+    const selfItems = items.filter((r) => r.source === 'self');
+    const otherItems = items.filter((r) => r.source !== 'self');
+    return {
+      ...d,
+      items,
+      score: average(items.map((r) => r.score)),
+      selfScore: average(selfItems.map((r) => r.score)),
+      otherScore: average(otherItems.map((r) => r.score)),
+    };
+  });
+  const rated = dimensions.filter((d) => d.score !== null);
+  const strengths = [...rated].filter((d) => d.score >= 3.5).sort((a, b) => b.score - a.score).slice(0, 3);
+  const development = [...rated].filter((d) => d.score < 3.5).sort((a, b) => a.score - b.score).slice(0, 2);
+  const observers = new Set(records.map((r) => r.observer).filter(Boolean));
+  const confidence = records.length === 0 ? '待建立' : records.length < 3 ? '初步画像' : records.length < 6 ? '形成中' : '较稳定';
+  return {
+    records,
+    dimensions,
+    strengths,
+    development,
+    observers: observers.size,
+    confidence,
+    overall: average(records.map((r) => r.score)),
+    latest: records[0]?.date || '',
+  };
+}
 
 /** 某员工某年的薪酬汇总 */
 function salarySum(empId, year) {
@@ -92,54 +139,208 @@ document.querySelectorAll('.tab').forEach((t) =>
   }
 );
 
-// ================= 视图：员工卡片 =================
+// ================= 视图：人才棒球卡 =================
 function viewCards() {
   const emps = state.employees;
-  // 工具栏始终渲染（含新增按钮），空列表时也能看到入口
   const toolbar = `
-    <div class="toolbar">
-      <button class="btn primary" onclick="editEmp()">＋ 新增员工</button>
-      <span class="hint">共 ${emps.length} 名员工 · 统计年度 ${state.year}</span>
+    <section class="talent-intro" aria-labelledby="talent-title">
+      <div>
+        <div class="eyebrow">PEOPLE PROFILE</div>
+        <h1 id="talent-title">人才棒球卡</h1>
+        <p>用持续的事实记录认识每个人的优势与边界。分数是线索，证据才是判断依据。</p>
+      </div>
+      <div class="talent-actions">
+        <button class="btn" onclick="editAssessment()">记录观察</button>
+        <button class="btn primary" onclick="editEmp()">新增员工</button>
+      </div>
+    </section>
+    <div class="toolbar talent-toolbar">
+      <span class="hint">${emps.length} 名员工 · ${state.assessments.length} 条观察记录 · 画像使用全部历史证据</span>
     </div>`;
   if (!emps.length) {
     return `${toolbar}
-      <div class="panel"><div class="empty">暂无员工，点击右上角「新增员工」开始录入</div></div>`;
+      <div class="panel"><div class="empty">暂无员工，点击「新增员工」建立第一张人才棒球卡</div></div>`;
   }
   const cards = emps.map((e) => {
-    const s = salarySum(e.id, state.year);
-    const tv = travelSum(e.id, state.year);
-    const total = s.net + tv;
+    const p = talentProfile(e.id);
+    const strengthTags = p.strengths.length
+      ? p.strengths.map((d) => `<span class="talent-chip strength">${esc(d.short)} · ${d.score.toFixed(1)}</span>`).join('')
+      : '<span class="talent-chip neutral">等待更多证据</span>';
+    const watchTags = p.development.length
+      ? p.development.map((d) => `<span class="talent-chip watch">${esc(d.short)} · ${d.score.toFixed(1)}</span>`).join('')
+      : '<span class="talent-chip neutral">暂未识别</span>';
+    const dimensionRows = p.dimensions.map((d) => `
+      <div class="mini-score ${scoreTone(d.score)}">
+        <span>${esc(d.short)}</span>
+        <div class="score-track" aria-label="${esc(d.name)} ${d.score === null ? '证据不足' : `${d.score.toFixed(1)} 分`}">
+          <span style="width:${d.score === null ? 0 : d.score * 20}%"></span>
+        </div>
+        <b>${d.score === null ? '—' : d.score.toFixed(1)}</b>
+      </div>`).join('');
     return `
     <div class="bcard">
       <div class="head">
-      <div class="photo">${e.photo ? `<img src="${esc(e.photo)}" alt="">` : `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg>`}</div>
+      <div class="photo">${e.photo ? `<img src="${esc(e.photo)}" alt="${esc(e.name)}的头像">` : `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg>`}</div>
         <div class="who">
           <div class="name">${esc(e.name)}${e.department ? `<span class="team-tag">${esc(e.department)}</span>` : ''}</div>
           <div class="sub">${esc(e.position || '未设置职位')} · 入职 ${esc(e.joinDate || '—')}</div>
         </div>
+        <span class="confidence ${p.records.length ? '' : 'is-empty'}">${p.confidence}</span>
       </div>
-      <div class="meta">
-        <span><b>月薪总额</b> ¥${fmt(e.monthlyBase)}</span>
-        <span><b>基本/绩效</b> ¥${fmt((Number(e.monthlyBase) || 0) * state.settings.baseRatio)} / ¥${fmt((Number(e.monthlyBase) || 0) * (1 - state.settings.baseRatio))}</span>
-        <span><b>已录月份</b> ${s.months}/12</span>
-        <span><b>差旅次数</b> ${state.travel.filter((r) => r.empId === e.id && r.date.startsWith(String(state.year))).length} 次</span>
+      <p class="role-summary">${esc(e.roleSummary || '尚未填写角色画像。建议说明这个人最适合承担哪类工作。')}</p>
+      <div class="talent-group">
+        <div class="talent-label"><span>核心优势</span><small>基于高分证据</small></div>
+        <div class="talent-chips">${strengthTags}</div>
       </div>
-      <div class="stats">
-        <div><div class="num">¥${fmt(s.net)}</div><div class="lbl">${state.year}年薪酬实发</div></div>
-        <div><div class="num">¥${fmt(tv)}</div><div class="lbl">${state.year}年差旅</div></div>
-        <div><div class="num">${s.months}</div><div class="lbl">录入月数</div></div>
+      <div class="talent-group">
+        <div class="talent-label"><span>关注方向</span><small>不是负面标签</small></div>
+        <div class="talent-chips">${watchTags}</div>
       </div>
-      <div class="total"><span>员工年度成本（薪酬+差旅）</span><span class="num">¥${fmt(total)}</span></div>
+      <div class="mini-scores">${dimensionRows}</div>
+      <div class="evidence-summary">
+        <span><b>${p.records.length}</b> 条证据</span>
+        <span><b>${p.observers}</b> 位评价人</span>
+        <span>${p.latest ? `更新于 ${esc(p.latest)}` : '尚未开始评价'}</span>
+      </div>
       <div class="ops">
-        <button class="btn small" onclick="editEmp('${e.id}')">编辑</button>
-        <button class="btn small" onclick="quickSalary('${e.id}')">记薪酬</button>
-        <button class="btn small" onclick="quickTravel('${e.id}')">记差旅</button>
+        <button class="btn small primary-soft" onclick="viewTalentProfile('${e.id}')">查看画像</button>
+        <button class="btn small" onclick="editAssessment('${e.id}')">记录观察</button>
+        <button class="btn small" onclick="editEmp('${e.id}')">编辑档案</button>
         <button class="btn small danger" onclick="delEmp('${e.id}')">删除</button>
       </div>
     </div>`;
   }).join('');
   return `${toolbar}<div class="cardgrid">${cards}</div>`;
 }
+
+window.viewTalentProfile = function (empId) {
+  const e = state.employees.find((x) => x.id === empId);
+  if (!e) return;
+  const p = talentProfile(empId);
+  const skillTags = (e.skills || []).length
+    ? e.skills.map((x) => `<span class="skill-chip">${esc(x)}</span>`).join('')
+    : '<span class="muted-copy">暂未填写专业技能</span>';
+  const scoreRows = p.dimensions.map((d) => `
+    <div class="profile-score-row ${scoreTone(d.score)}">
+      <div class="profile-score-head">
+        <span><b>${esc(d.name)}</b><small>${esc(d.description)}</small></span>
+        <strong>${d.score === null ? '—' : d.score.toFixed(1)}</strong>
+      </div>
+      <div class="profile-score-track"><span style="width:${d.score === null ? 0 : d.score * 20}%"></span></div>
+      <div class="score-meta">
+        <span>${scoreText(d.score)} · ${d.items.length} 条证据</span>
+        ${(d.selfScore !== null || d.otherScore !== null) ? `<span>自评 ${d.selfScore === null ? '—' : d.selfScore.toFixed(1)} / 他评 ${d.otherScore === null ? '—' : d.otherScore.toFixed(1)}</span>` : ''}
+      </div>
+    </div>`).join('');
+  const timeline = p.records.length ? p.records.map((r) => `
+    <article class="evidence-item">
+      <div class="evidence-mark score-${r.score}" aria-label="${r.score} 分">${r.score}</div>
+      <div class="evidence-body">
+        <div class="evidence-head">
+          <div><b>${esc(competency(r.dimension).name)}</b><span>${esc(SOURCE_NAMES[r.source] || r.source)} · ${esc(r.observer)}</span></div>
+          <time>${esc(r.date)}</time>
+        </div>
+        <p>${esc(r.evidence)}</p>
+      </div>
+      <button class="icon-btn danger" aria-label="删除这条观察记录" title="删除记录" onclick="delAssessment('${r.id}','${e.id}')">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-1 11H8L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg>
+      </button>
+    </article>`).join('') : '<div class="empty compact">还没有观察记录。先记录一个具体事件，画像才会开始形成。</div>';
+  openModal(`
+    <div class="modal-title-row">
+      <div><div class="eyebrow">TALENT PROFILE</div><h2>${esc(e.name)}的人才画像</h2></div>
+      <button class="icon-btn" aria-label="关闭" onclick="closeModal()">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="m7.4 6 4.6 4.6L16.6 6 18 7.4 13.4 12l4.6 4.6-1.4 1.4-4.6-4.6L7.4 18 6 16.6l4.6-4.6L6 7.4 7.4 6Z"/></svg>
+      </button>
+    </div>
+    <div class="profile-identity">
+      <div class="photo large">${e.photo ? `<img src="${esc(e.photo)}" alt="${esc(e.name)}的头像">` : `<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg>`}</div>
+      <div><h3>${esc(e.name)}</h3><p>${esc(e.department || '未分配')} · ${esc(e.position || '未设置职位')}</p></div>
+      <div class="profile-kpis"><span><b>${p.overall === null ? '—' : p.overall.toFixed(1)}</b>综合</span><span><b>${p.records.length}</b>证据</span><span><b>${p.observers}</b>评价人</span></div>
+    </div>
+    <div class="profile-summary-box"><span>角色画像</span><p>${esc(e.roleSummary || '尚未填写。建议描述这个人最适合承担的任务类型和工作环境。')}</p></div>
+    <div class="profile-layout">
+      <section class="profile-section">
+        <div class="section-heading"><div><h3>六维能力</h3><p>1～5 分；横条和数字共同表达，不依赖颜色</p></div><button class="btn small" onclick="editAssessment('${e.id}')">新增观察</button></div>
+        <div class="profile-scores">${scoreRows}</div>
+      </section>
+      <aside class="profile-side">
+        <section class="profile-section"><h3>专业技能</h3><div class="skill-list">${skillTags}</div></section>
+        <section class="profile-section score-guide"><h3>评分口径</h3><ol><li><b>1</b> 需要持续指导</li><li><b>2</b> 尚不稳定</li><li><b>3</b> 可以独立完成</li><li><b>4</b> 稳定优秀</li><li><b>5</b> 可以指导他人</li></ol></section>
+      </aside>
+    </div>
+    <section class="profile-section evidence-section">
+      <div class="section-heading"><div><h3>事实与观察</h3><p>按时间倒序保留评分依据</p></div></div>
+      <div class="evidence-list">${timeline}</div>
+    </section>`, 'profile-modal');
+};
+
+window.editAssessment = function (empId = '') {
+  if (!state.employees.length) return toast('请先新增员工');
+  const selected = empId || state.employees[0].id;
+  const today = new Date().toISOString().slice(0, 10);
+  openModal(`
+    <div class="modal-title-row"><div><div class="eyebrow">ADD EVIDENCE</div><h2>记录一次工作观察</h2></div><button class="icon-btn" aria-label="关闭" onclick="closeModal()"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="m7.4 6 4.6 4.6L16.6 6 18 7.4 13.4 12l4.6 4.6-1.4 1.4-4.6-4.6L7.4 18 6 16.6l4.6-4.6L6 7.4 7.4 6Z"/></svg></button></div>
+    <p class="modal-lead">记录具体发生了什么，再给出评分。避免使用“能力不错”这类无法验证的结论。</p>
+    <div class="form assessment-form">
+      <label>员工 *<select id="a-emp">${state.employees.map((e) => `<option value="${e.id}" ${e.id === selected ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></label>
+      <label>日期 *<input id="a-date" type="date" value="${today}"></label>
+      <label>能力维度 *<select id="a-dimension">${COMPETENCIES.map((d) => `<option value="${d.id}">${esc(d.name)}｜${esc(d.description)}</option>`).join('')}</select></label>
+      <label>证据来源 *<select id="a-source"><option value="manager">主管观察</option><option value="result">工作结果</option><option value="peer">同事反馈</option><option value="self">员工自评</option></select></label>
+      <label>评分 *<select id="a-score"><option value="3">3｜可以独立完成</option><option value="4">4｜稳定优秀</option><option value="5">5｜可以指导他人</option><option value="2">2｜尚不稳定</option><option value="1">1｜需要持续指导</option></select></label>
+      <label>评价人 *<input id="a-observer" value="管理员" maxlength="30"></label>
+      <label class="full">具体事实或工作结果 *<textarea id="a-evidence" rows="4" maxlength="500" aria-describedby="a-evidence-help a-evidence-error" placeholder="例如：在客户上线前发现数据风险，主动制定回滚方案，最终按期交付。"></textarea><span class="field-helper" id="a-evidence-help">至少 6 个字。描述行为和结果，不评价性格。</span><span class="field-error" id="a-evidence-error" role="alert" hidden>请填写至少 6 个字的具体事实或工作结果</span></label>
+      <div class="actions"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" id="a-save" onclick="saveAssessment()">保存观察</button></div>
+    </div>`);
+  $('#a-evidence').addEventListener('input', (event) => {
+    if (event.target.value.trim().length < 6) return;
+    event.target.removeAttribute('aria-invalid');
+    $('#a-evidence-error').hidden = true;
+  });
+};
+
+window.saveAssessment = async function () {
+  const evidence = $('#a-evidence').value.trim();
+  if (evidence.length < 6) {
+    $('#a-evidence').setAttribute('aria-invalid', 'true');
+    $('#a-evidence-error').hidden = false;
+    $('#a-evidence').focus();
+    return;
+  }
+  const saveButton = $('#a-save');
+  saveButton.disabled = true;
+  saveButton.textContent = '保存中…';
+  try {
+    const empId = $('#a-emp').value;
+    await api('/api/assessments', 'POST', {
+      empId,
+      date: $('#a-date').value,
+      dimension: $('#a-dimension').value,
+      source: $('#a-source').value,
+      score: Number($('#a-score').value),
+      observer: $('#a-observer').value,
+      evidence,
+    });
+    closeModal();
+    await refresh();
+    viewTalentProfile(empId);
+    toast('观察已记录，画像已更新');
+  } catch (err) {
+    saveButton.disabled = false;
+    saveButton.textContent = '保存观察';
+    toast(err.message);
+  }
+};
+
+window.delAssessment = async function (id, empId) {
+  if (!confirm('确定删除这条观察记录吗？员工画像将重新计算。')) return;
+  try {
+    await api(`/api/assessments/${id}`, 'DELETE');
+    await refresh();
+    viewTalentProfile(empId);
+    toast('观察记录已删除');
+  } catch (err) { toast(err.message); }
+};
 
 // 员工新增/编辑弹窗
 window.editEmp = function (id) {
@@ -153,6 +354,8 @@ window.editEmp = function (id) {
       <label>入职日期<input id="f-join" type="date" value="${esc(e.joinDate || '')}"></label>
       <label>月薪总额（谈定总薪酬，元）<input id="f-base" type="number" step="0.01" value="${e.monthlyBase ?? ''}" placeholder="录入薪酬时自动带出"></label>
       <label>照片<input id="f-photo" type="file" accept="image/*"></label>
+      <label class="full">角色画像<textarea id="f-role" rows="2" maxlength="180" placeholder="这个人最适合承担哪类任务？在什么环境下表现最好？">${esc(e.roleSummary || '')}</textarea></label>
+      <label class="full">专业技能<input id="f-skills" value="${esc((e.skills || []).join('、'))}" placeholder="用逗号或顿号分隔，如：客户实施、项目推进、需求澄清"><span class="field-helper">最多保留 12 项技能标签</span></label>
       <label class="full">备注<textarea id="f-note" rows="2">${esc(e.note || '')}</textarea></label>
       <div class="actions">
         <button class="btn" onclick="closeModal()">取消</button>
@@ -177,6 +380,8 @@ window.saveEmp = async function (id) {
     joinDate: $('#f-join').value,
     monthlyBase: $('#f-base').value,
     photo: $('#f-photo').dataset.dataurl ?? '',
+    roleSummary: $('#f-role').value,
+    skills: $('#f-skills').value.split(/[，,、]/).map((x) => x.trim()).filter(Boolean).slice(0, 12),
     note: $('#f-note').value,
   };
   if (!body.name.trim()) return toast('姓名必填');
@@ -195,7 +400,7 @@ window.saveEmp = async function (id) {
 };
 
 window.delEmp = async function (id) {
-  if (!confirm(`确定删除「${empName(id)}」吗？其薪酬与差旅记录也会一并删除。`)) return;
+  if (!confirm(`确定删除「${empName(id)}」吗？其观察、薪酬与差旅记录也会一并删除。`)) return;
   await api(`/api/employees/${id}`, 'DELETE');
   toast('已删除');
   await refresh();
@@ -783,16 +988,35 @@ window.exportReport = function () {
 };
 
 // ---------- 弹窗 ----------
-function openModal(html) {
+let modalLastFocus = null;
+function openModal(html, className = '') {
   closeModal();
+  modalLastFocus = document.activeElement;
   const mask = document.createElement('div');
   mask.className = 'mask';
   mask.id = 'mask';
-  mask.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
+  mask.innerHTML = `<div class="modal ${esc(className)}" role="dialog" aria-modal="true">${html}</div>`;
   mask.addEventListener('click', (e) => { if (e.target === mask) closeModal(); });
+  mask.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') return closeModal();
+    if (e.key !== 'Tab') return;
+    const items = [...mask.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!items.length) return;
+    const first = items[0]; const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   document.body.appendChild(mask);
+  document.body.classList.add('modal-open');
+  requestAnimationFrame(() => mask.querySelector('input, select, textarea, button')?.focus());
 }
-window.closeModal = function () { $('#mask')?.remove(); };
+window.closeModal = function () {
+  const mask = $('#mask');
+  if (!mask) return;
+  mask.remove();
+  document.body.classList.remove('modal-open');
+  if (modalLastFocus?.isConnected) modalLastFocus.focus();
+};
 
 // ---------- 薪酬规则设置 ----------
 $('#settingsBtn').onclick = () => {
@@ -836,6 +1060,8 @@ window.saveSettings = async function () {
 function render() {
   const views = { cards: viewCards, salary: viewSalary, travel: viewTravel, equipment: viewEquipment, report: viewReport };
   $('#app').innerHTML = views[state.tab]();
+  $('.yearbox').hidden = state.tab === 'cards';
+  $('#settingsBtn').hidden = state.tab !== 'salary';
 }
 
 async function refresh() {
@@ -846,8 +1072,8 @@ async function refresh() {
       if (err.message === 'unknown api') return { data: [], available: false };
       throw err;
     });
-  const [employees, salary, travel, equipmentResult, settings] = await Promise.all([
-    api('/api/employees'), api('/api/salary'), api('/api/travel'), equipmentRequest, api('/api/settings'),
+  const [employees, salary, travel, equipmentResult, settings, assessments] = await Promise.all([
+    api('/api/employees'), api('/api/salary'), api('/api/travel'), equipmentRequest, api('/api/settings'), api('/api/assessments'),
   ]);
   state.employees = employees;
   state.salary = salary;
@@ -855,6 +1081,7 @@ async function refresh() {
   state.equipment = equipmentResult.data;
   state.equipmentApiAvailable = equipmentResult.available;
   state.settings = settings;
+  state.assessments = assessments;
   initYearSel();
   render();
 }

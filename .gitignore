@@ -3,4 +3,5 @@ data/employees.json
 data/salary.json
 data/travel.json
 data/equipment.json
-
+data/assessments.json
+.worker-card.pid

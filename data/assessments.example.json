@@ -1,0 +1,68 @@
+[
+  {
+    "id": "assess-zhang-1",
+    "empId": "emp-zhangsan",
+    "date": "2026-08-18",
+    "dimension": "judgment",
+    "score": 4,
+    "source": "result",
+    "observer": "项目负责人",
+    "evidence": "在发布前主动发现旧浏览器兼容风险，提出替代方案并避免了线上回滚。",
+    "createdAt": "2026-08-18T09:00:00.000Z"
+  },
+  {
+    "id": "assess-zhang-2",
+    "empId": "emp-zhangsan",
+    "date": "2026-08-25",
+    "dimension": "execution",
+    "score": 4,
+    "source": "manager",
+    "observer": "管理员",
+    "evidence": "独立拆分并按期完成客户门户改版，关键页面均通过验收。",
+    "createdAt": "2026-08-25T09:00:00.000Z"
+  },
+  {
+    "id": "assess-zhang-3",
+    "empId": "emp-zhangsan",
+    "date": "2026-08-29",
+    "dimension": "collaboration",
+    "score": 3,
+    "source": "peer",
+    "observer": "同事反馈",
+    "evidence": "技术方案清楚，但跨部门同步通常偏晚，需要更早暴露依赖和风险。",
+    "createdAt": "2026-08-29T09:00:00.000Z"
+  },
+  {
+    "id": "assess-lisi-1",
+    "empId": "emp-lisi",
+    "date": "2026-08-12",
+    "dimension": "ownership",
+    "score": 4,
+    "source": "manager",
+    "observer": "管理员",
+    "evidence": "客户现场出现数据问题后持续跟进到闭环，并主动补充了排查清单。",
+    "createdAt": "2026-08-12T09:00:00.000Z"
+  },
+  {
+    "id": "assess-lisi-2",
+    "empId": "emp-lisi",
+    "date": "2026-08-20",
+    "dimension": "collaboration",
+    "score": 5,
+    "source": "peer",
+    "observer": "项目组",
+    "evidence": "在三方联调中能快速统一信息口径，并推动各方明确负责人和截止时间。",
+    "createdAt": "2026-08-20T09:00:00.000Z"
+  },
+  {
+    "id": "assess-lisi-3",
+    "empId": "emp-lisi",
+    "date": "2026-08-27",
+    "dimension": "judgment",
+    "score": 3,
+    "source": "result",
+    "observer": "项目负责人",
+    "evidence": "常规问题判断准确，遇到技术边界问题时还需要更早邀请研发共同决策。",
+    "createdAt": "2026-08-27T09:00:00.000Z"
+  }
+]
