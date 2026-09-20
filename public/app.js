@@ -54,37 +54,25 @@ const average = (list) => list.length ? list.reduce((sum, x) => sum + Number(x),
 const scoreText = (n) => n === null ? '证据不足' : ({ 1: '需要指导', 2: '尚不稳定', 3: '可以独立', 4: '稳定优秀', 5: '可指导他人' }[Math.round(n)]);
 const scoreTone = (n) => n === null ? 'no-score' : n >= 4 ? 'strong' : n < 3 ? 'watch' : 'steady';
 
+// ---------- 画像算法参数（详见 docs/profile-algorithm.md） ----------
+const PROFILE_OPTIONS = {
+  prior: { mean: 3, strength: 3 }, // 先验：相当于 k 条「3 分可以独立完成」的虚拟证据
+  strengthLine: 3.5,               // 优势线（作用于收缩分）；关注方向为低于此值
+  minEvidence: 2,                  // 优势/关注方向的最低证据条数，低于此值显示「样本不足」
+  blindspotGap: 1,                 // 盲区提示：自评与他评的差距阈值
+  blindspotMinOther: 2,            // 盲区提示所需的最少他评条数
+  // 时间衰减（v3）：旧证据权重按半年半衰期折算，w = 0.5^(天数/180)
+  decay: { halfLifeDays: 180 },
+  // 近 90 天趋势（只播报事实，不影响分数）；箭头需两侧各 ≥2 条且差距 ≥0.5
+  trend: { windowDays: 90, minSide: 2, arrowThreshold: 0.5 },
+  stalenessDays: 180,              // 最新证据超过该天数则提示画像可能过时
+};
+
+/** 员工画像：原始证据经 ProfileMath 聚合（贝叶斯收缩 + 三因子可信度），见 docs/profile-algorithm.md */
 function talentProfile(empId) {
-  const records = state.assessments
-    .filter((r) => r.empId === empId)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
-  const dimensions = COMPETENCIES.map((d) => {
-    const items = records.filter((r) => r.dimension === d.id);
-    const selfItems = items.filter((r) => r.source === 'self');
-    const otherItems = items.filter((r) => r.source !== 'self');
-    return {
-      ...d,
-      items,
-      score: average(items.map((r) => r.score)),
-      selfScore: average(selfItems.map((r) => r.score)),
-      otherScore: average(otherItems.map((r) => r.score)),
-    };
-  });
-  const rated = dimensions.filter((d) => d.score !== null);
-  const strengths = [...rated].filter((d) => d.score >= 3.5).sort((a, b) => b.score - a.score).slice(0, 3);
-  const development = [...rated].filter((d) => d.score < 3.5).sort((a, b) => a.score - b.score).slice(0, 2);
-  const observers = new Set(records.map((r) => r.observer).filter(Boolean));
-  const confidence = records.length === 0 ? '待建立' : records.length < 3 ? '初步画像' : records.length < 6 ? '形成中' : '较稳定';
-  return {
-    records,
-    dimensions,
-    strengths,
-    development,
-    observers: observers.size,
-    confidence,
-    overall: average(records.map((r) => r.score)),
-    latest: records[0]?.date || '',
-  };
+  const records = state.assessments.filter((r) => r.empId === empId);
+  const p = ProfileMath.buildProfile(records, COMPETENCIES, PROFILE_OPTIONS);
+  return { ...p, confidence: p.confidenceLabel };
 }
 
 /** 某员工某年的薪酬汇总 */
@@ -155,7 +143,7 @@ function viewCards() {
       </div>
     </section>
     <div class="toolbar talent-toolbar">
-      <span class="hint">${emps.length} 名员工 · ${state.assessments.length} 条观察记录 · 画像使用全部历史证据</span>
+      <span class="hint">${emps.length} 名员工 · ${state.assessments.length} 条观察记录 · 画像分数按证据量收缩校准（算法见 docs/profile-algorithm.md）</span>
     </div>`;
   if (!emps.length) {
     return `${toolbar}
@@ -170,7 +158,7 @@ function viewCards() {
       ? p.development.map((d) => `<span class="talent-chip watch">${esc(d.short)} · ${d.score.toFixed(1)}</span>`).join('')
       : '<span class="talent-chip neutral">暂未识别</span>';
     const dimensionRows = p.dimensions.map((d) => `
-      <div class="mini-score ${scoreTone(d.score)}">
+      <div class="mini-score ${d.insufficient ? 'insufficient' : scoreTone(d.score)}">
         <span>${esc(d.short)}</span>
         <div class="score-track" aria-label="${esc(d.name)} ${d.score === null ? '证据不足' : `${d.score.toFixed(1)} 分`}">
           <span style="width:${d.score === null ? 0 : d.score * 20}%"></span>
@@ -185,7 +173,7 @@ function viewCards() {
           <div class="name">${esc(e.name)}${e.department ? `<span class="team-tag">${esc(e.department)}</span>` : ''}</div>
           <div class="sub">${esc(e.position || '未设置职位')} · 入职 ${esc(e.joinDate || '—')}</div>
         </div>
-        <span class="confidence ${p.records.length ? '' : 'is-empty'}">${p.confidence}</span>
+        <span class="confidence ${p.records.length ? '' : 'is-empty'}" title="可信度 ${p.confidenceScore} 分｜样本 ${p.confidenceParts.sample}% · 维度覆盖 ${p.confidenceParts.coverage}% · 评价人 ${p.confidenceParts.observers}%">${p.confidence}</span>
       </div>
       <p class="role-summary">${esc(e.roleSummary || '尚未填写角色画像。建议说明这个人最适合承担哪类工作。')}</p>
       <div class="talent-group">
@@ -200,7 +188,7 @@ function viewCards() {
       <div class="evidence-summary">
         <span><b>${p.records.length}</b> 条证据</span>
         <span><b>${p.observers}</b> 位评价人</span>
-        <span>${p.latest ? `更新于 ${esc(p.latest)}` : '尚未开始评价'}</span>
+        <span>${p.latest ? `更新于 ${esc(p.latest)}${p.stale ? '，证据已陈旧' : ''}` : '尚未开始评价'}</span>
       </div>
       <div class="ops">
         <button class="btn small primary-soft" onclick="viewTalentProfile('${e.id}')">查看画像</button>
@@ -221,16 +209,17 @@ window.viewTalentProfile = function (empId) {
     ? e.skills.map((x) => `<span class="skill-chip">${esc(x)}</span>`).join('')
     : '<span class="muted-copy">暂未填写专业技能</span>';
   const scoreRows = p.dimensions.map((d) => `
-    <div class="profile-score-row ${scoreTone(d.score)}">
+    <div class="profile-score-row ${d.insufficient ? 'insufficient' : scoreTone(d.score)}">
       <div class="profile-score-head">
         <span><b>${esc(d.name)}</b><small>${esc(d.description)}</small></span>
         <strong>${d.score === null ? '—' : d.score.toFixed(1)}</strong>
       </div>
       <div class="profile-score-track"><span style="width:${d.score === null ? 0 : d.score * 20}%"></span></div>
       <div class="score-meta">
-        <span>${scoreText(d.score)} · ${d.items.length} 条证据</span>
+        <span>${scoreText(d.score)} · ${d.n} 条证据${d.n > 0 ? ` · 原始均分 ${d.rawScore.toFixed(1)}` : ''}${d.insufficient ? '（样本不足，继续观察）' : ''}${d.trend ? ` · 近${PROFILE_OPTIONS.trend.windowDays}天 ${d.trend.recentMean.toFixed(1)}${d.trend.arrow === 'up' ? ' ↑' : d.trend.arrow === 'down' ? ' ↓' : ''}` : ''}</span>
         ${(d.selfScore !== null || d.otherScore !== null) ? `<span>自评 ${d.selfScore === null ? '—' : d.selfScore.toFixed(1)} / 他评 ${d.otherScore === null ? '—' : d.otherScore.toFixed(1)}</span>` : ''}
       </div>
+      ${d.blindspot ? `<div class="blindspot-hint">${d.blindspot.direction === 'self-higher' ? `自评高于他评 ${d.blindspot.gap} 分——可能存在认知盲区，建议一对一沟通核对` : `自评低于他评 ${-d.blindspot.gap} 分——自我要求可能高于团队共识，也值得核对`}</div>` : ''}
     </div>`).join('');
   const timeline = p.records.length ? p.records.map((r) => `
     <article class="evidence-item">
@@ -256,12 +245,13 @@ window.viewTalentProfile = function (empId) {
     <div class="profile-identity">
       <div class="photo large">${e.photo ? `<img src="${esc(e.photo)}" alt="${esc(e.name)}的头像">` : `<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg>`}</div>
       <div><h3>${esc(e.name)}</h3><p>${esc(e.department || '未分配')} · ${esc(e.position || '未设置职位')}</p></div>
-      <div class="profile-kpis"><span><b>${p.overall === null ? '—' : p.overall.toFixed(1)}</b>综合</span><span><b>${p.records.length}</b>证据</span><span><b>${p.observers}</b>评价人</span></div>
+      <div class="profile-kpis"><span><b>${p.overall === null ? '—' : p.overall.toFixed(1)}</b>综合</span><span><b>${p.records.length}</b>证据</span><span><b>${p.observers}</b>评价人</span><span title="可信度 ${p.confidenceScore} 分｜样本 ${p.confidenceParts.sample}% · 维度覆盖 ${p.confidenceParts.coverage}% · 评价人 ${p.confidenceParts.observers}%"><b>${p.confidence}</b>可信度</span></div>
     </div>
     <div class="profile-summary-box"><span>角色画像</span><p>${esc(e.roleSummary || '尚未填写。建议描述这个人最适合承担的任务类型和工作环境。')}</p></div>
+    ${p.stale ? `<div class="stale-hint">最近 ${PROFILE_OPTIONS.stalenessDays} 天没有新证据，画像可能过时，建议安排一次观察</div>` : ''}
     <div class="profile-layout">
       <section class="profile-section">
-        <div class="section-heading"><div><h3>六维能力</h3><p>1～5 分；横条和数字共同表达，不依赖颜色</p></div><button class="btn small" onclick="editAssessment('${e.id}')">新增观察</button></div>
+        <div class="section-heading"><div><h3>六维能力</h3><p>1～5 分，分数经贝叶斯收缩校准：证据越少越接近 3 分，原始均分见每维下方</p></div><button class="btn small" onclick="editAssessment('${e.id}')">新增观察</button></div>
         <div class="profile-scores">${scoreRows}</div>
       </section>
       <aside class="profile-side">

@@ -286,6 +286,11 @@ button, select { touch-action: manipulation; }
 .score-track > span, .profile-score-track > span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
 .mini-score.strong .score-track > span, .profile-score-row.strong .profile-score-track > span { background: var(--green); }
 .mini-score.watch .score-track > span, .profile-score-row.watch .profile-score-track > span { background: #d48618; }
+.mini-score.insufficient .score-track > span, .profile-score-row.insufficient .profile-score-track > span { background: #c3ccd9; }
+.mini-score.insufficient > b { color: var(--muted); }
+.profile-score-row.insufficient .profile-score-head strong { color: var(--muted); }
+.blindspot-hint { margin-top: 7px; padding: 7px 10px; border-radius: 7px; background: var(--amber-bg); color: #8a570c; font-size: 11px; line-height: 1.6; }
+.stale-hint { margin-top: 12px; padding: 8px 11px; border-radius: 7px; background: var(--amber-bg); color: #8a570c; font-size: 12px; line-height: 1.6; }
 .evidence-summary {
   display: flex;
   align-items: center;
